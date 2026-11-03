@@ -1,0 +1,50 @@
+# Secrets & local env (never commit real secret values)
+.env
+.env.*
+!.env.example
+.vault.key
+*.vault.key
+
+# Local AI agent instructions
+AGENTS.md
+CLAUDE.md
+.claude/
+.agents/
+.codex/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+pytest-cache-files-*/
+pytest-of-*/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# Local databases & volumes
+data/
+backend/data/
+pgdata/
+*.db
+*.sqlite
+*.sqlite3
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
