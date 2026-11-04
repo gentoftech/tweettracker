@@ -160,6 +160,7 @@ async def _serialize_workspace(session: AsyncSession, ws: Workspace) -> Workspac
         x_list_ids_json=list(ws.x_list_ids_json or []),
         monthly_unit_budget=int(getattr(ws, "monthly_unit_budget", 100_000) or 100_000),
         hot_posts_min_projected_views=int(getattr(ws, "hot_posts_min_projected_views", 5_000) or 0),
+        hot_posts_min_momentum_score=float(getattr(ws, "hot_posts_min_momentum_score", 0.0) or 0.0),
         daily_spend_cap_usd=ws.daily_spend_cap_usd,
         monthly_spend_cap_usd=ws.monthly_spend_cap_usd,
         watch_threshold=ws.watch_threshold,
@@ -246,6 +247,7 @@ async def create_workspace(
         x_list_ids_json=list(payload.x_list_ids_json or []),
         monthly_unit_budget=payload.monthly_unit_budget,
         hot_posts_min_projected_views=payload.hot_posts_min_projected_views,
+        hot_posts_min_momentum_score=payload.hot_posts_min_momentum_score,
         daily_spend_cap_usd=payload.daily_spend_cap_usd,
         monthly_spend_cap_usd=payload.monthly_spend_cap_usd,
         watch_threshold=payload.watch_threshold,
@@ -351,6 +353,11 @@ async def update_workspace(
             and payload.hot_posts_min_projected_views is not None
         ):
             ws.hot_posts_min_projected_views = payload.hot_posts_min_projected_views
+        if (
+            "hot_posts_min_momentum_score" in fields
+            and payload.hot_posts_min_momentum_score is not None
+        ):
+            ws.hot_posts_min_momentum_score = payload.hot_posts_min_momentum_score
         if "daily_spend_cap_usd" in fields and payload.daily_spend_cap_usd is not None:
             ws.daily_spend_cap_usd = payload.daily_spend_cap_usd
         if "monthly_spend_cap_usd" in fields and payload.monthly_spend_cap_usd is not None:

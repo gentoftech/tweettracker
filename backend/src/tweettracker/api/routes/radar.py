@@ -730,11 +730,14 @@ async def get_breakout_radar_feed(
         # Early enough to reply near the top of the thread, and projected big enough to be worth
         # it. No "beating its author's usual" gate: pace already shapes the projection.
         min_projected = int(getattr(ws, "hot_posts_min_projected_views", 5_000) or 0)
+        # Optional user floor on the momentum (breakout) score badge; 0 = off
+        min_momentum = float(getattr(ws, "hot_posts_min_momentum_score", 0.0) or 0.0)
         cards = [
             c
             for c in cards
             if c["age_minutes"] <= HOT_POSTS_MAX_AGE_MINUTES
             and c["projected_48h_views"] >= min_projected
+            and c["breakout_score"] >= min_momentum
         ]
         cards.sort(
             key=lambda c: (

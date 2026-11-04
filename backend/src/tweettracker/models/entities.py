@@ -45,6 +45,8 @@ class Workspace(Base):
     monthly_unit_budget: Mapped[int] = mapped_column(Integer, nullable=False, default=100_000)
     # Hot Posts hides posts projected to stay under this many 48h views (too small to reply to)
     hot_posts_min_projected_views: Mapped[int] = mapped_column(Integer, nullable=False, default=5_000)
+    # Hot Posts hides posts whose momentum (breakout) score is below this; 0 = off
+    hot_posts_min_momentum_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     watch_threshold: Mapped[float] = mapped_column(Float, nullable=False, default=65.0)
     surge_threshold: Mapped[float] = mapped_column(Float, nullable=False, default=82.0)
     quiet_hours_start: Mapped[str | None] = mapped_column(String(16), nullable=True, default=None)

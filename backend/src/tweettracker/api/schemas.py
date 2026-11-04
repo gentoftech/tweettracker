@@ -199,6 +199,7 @@ class WorkspaceCreate(BaseModel):
     x_list_ids_json: list[str] = Field(default_factory=list)
     monthly_unit_budget: int = Field(default=100_000, ge=1000, le=10_000_000)
     hot_posts_min_projected_views: int = Field(default=5_000, ge=0, le=10_000_000)
+    hot_posts_min_momentum_score: float = Field(default=0.0, ge=0.0, le=100.0, allow_inf_nan=False)
     daily_spend_cap_usd: float = Field(default=2.0, ge=0.0, le=10_000.0, allow_inf_nan=False)
     monthly_spend_cap_usd: float = Field(default=25.0, ge=0.0, le=100_000.0, allow_inf_nan=False)
     watch_threshold: float = Field(default=65.0, ge=1.0, le=99.0, allow_inf_nan=False)
@@ -276,6 +277,7 @@ class WorkspaceUpdate(BaseModel):
     x_list_ids_json: list[str] | None = None
     monthly_unit_budget: int | None = Field(default=None, ge=1000, le=10_000_000)
     hot_posts_min_projected_views: int | None = Field(default=None, ge=0, le=10_000_000)
+    hot_posts_min_momentum_score: float | None = Field(default=None, ge=0.0, le=100.0, allow_inf_nan=False)
     daily_spend_cap_usd: float | None = Field(default=None, ge=0.0, le=10_000.0, allow_inf_nan=False)
     monthly_spend_cap_usd: float | None = Field(default=None, ge=0.0, le=100_000.0, allow_inf_nan=False)
     watch_threshold: float | None = Field(default=None, ge=1.0, le=99.0, allow_inf_nan=False)
@@ -359,6 +361,7 @@ class WorkspaceOut(BaseModel):
     x_list_ids_json: list[str] = Field(default_factory=list)
     monthly_unit_budget: int = 100_000
     hot_posts_min_projected_views: int = 5_000
+    hot_posts_min_momentum_score: float = 0.0
     daily_spend_cap_usd: float
     monthly_spend_cap_usd: float
     watch_threshold: float

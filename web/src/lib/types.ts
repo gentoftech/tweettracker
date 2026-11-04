@@ -57,6 +57,7 @@ export interface Workspace {
   x_list_ids_json?: string[];
   monthly_unit_budget?: number;
   hot_posts_min_projected_views?: number;
+  hot_posts_min_momentum_score?: number;
   daily_spend_cap_usd: number;
   monthly_spend_cap_usd: number;
   watch_threshold: number;
@@ -82,6 +83,7 @@ export interface WorkspaceCreatePayload {
   x_list_ids_json?: string[];
   monthly_unit_budget?: number;
   hot_posts_min_projected_views?: number;
+  hot_posts_min_momentum_score?: number;
   daily_spend_cap_usd?: number;
   monthly_spend_cap_usd?: number;
   initial_communities?: CommunityCreatePayload[];
@@ -97,6 +99,7 @@ export interface WorkspaceUpdatePayload {
   x_list_ids_json?: string[];
   monthly_unit_budget?: number;
   hot_posts_min_projected_views?: number;
+  hot_posts_min_momentum_score?: number;
   daily_spend_cap_usd?: number;
   monthly_spend_cap_usd?: number;
   watch_threshold?: number;

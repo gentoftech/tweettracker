@@ -1019,6 +1019,10 @@ def _ensure_additive_columns(sync_conn: Connection) -> None:
                 "ALTER TABLE workspaces ADD COLUMN hot_posts_min_projected_views INTEGER NOT NULL DEFAULT 5000",
             ),
             (
+                "hot_posts_min_momentum_score",
+                "ALTER TABLE workspaces ADD COLUMN hot_posts_min_momentum_score FLOAT NOT NULL DEFAULT 0.0",
+            ),
+            (
                 "last_discovery_sync_at",
                 "ALTER TABLE workspaces ADD COLUMN last_discovery_sync_at TIMESTAMP",
             ),

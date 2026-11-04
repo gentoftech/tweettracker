@@ -576,3 +576,49 @@ async def test_hot_posts_show_big_ordinary_posts_and_prefer_earlier_ones(
         by_id[fresh_id]["expected_reply_reach_score"]
         > by_id[later_id]["expected_reply_reach_score"]
     )
+
+
+@pytest.mark.asyncio
+async def test_hot_posts_min_momentum_score_setting(
+    ux_api_env: tuple[httpx.AsyncClient, object],
+) -> None:
+    """The optional momentum floor (default 0 = off) hides posts whose score badge is below it."""
+    from tweettracker.seed import _build_baseline_curves
+
+    client, session_factory = ux_api_env
+    now = datetime.now(timezone.utc)
+    async with session_factory() as session:  # type: ignore[operator]
+        author = TrackedAccount(
+            workspace_id=1, x_user_id="u_momentum", handle="momentum_author",
+            followers_count=300_000, baseline_curves_json=_build_baseline_curves(40_000),
+        )
+        session.add(author)
+        await session.flush()
+        low = Post(
+            workspace_id=1, x_post_id="p_low_momentum", author_account_id=author.id,
+            text="Score 17.", created_at_x=now - timedelta(minutes=10),
+            latest_views=900, breakout_score=17.0,
+        )
+        high = Post(
+            workspace_id=1, x_post_id="p_high_momentum", author_account_id=author.id,
+            text="Score 60.", created_at_x=now - timedelta(minutes=10),
+            latest_views=3_000, breakout_score=60.0,
+        )
+        session.add_all([low, high])
+        await session.commit()
+        low_id, high_id = low.id, high.id
+
+    ws_body = (await client.get("/api/workspaces")).json()[0]
+    assert ws_body["hot_posts_min_momentum_score"] == 0.0
+    ids = [it["id"] for it in (await client.get("/api/workspaces/1/radar?live_queue=true&limit=100")).json()["items"]]
+    assert low_id in ids and high_id in ids
+
+    resp = await client.patch("/api/workspaces/1", json={"hot_posts_min_momentum_score": 30})
+    assert resp.status_code == 200
+    assert resp.json()["hot_posts_min_momentum_score"] == 30.0
+    items = (await client.get("/api/workspaces/1/radar?live_queue=true&limit=100")).json()["items"]
+    ids = [it["id"] for it in items]
+    assert low_id not in ids and high_id in ids
+    assert all(it["breakout_score"] >= 30.0 for it in items)
+
+    assert (await client.patch("/api/workspaces/1", json={"hot_posts_min_momentum_score": 101})).status_code == 422

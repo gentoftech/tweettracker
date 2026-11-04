@@ -49,6 +49,7 @@ export default function SettingsPage() {
   const [xListIdsText, setXListIdsText] = useState("");
   const [monthlyUnitBudget, setMonthlyUnitBudget] = useState(100_000);
   const [hotPostsMinViews, setHotPostsMinViews] = useState(5_000);
+  const [hotPostsMinMomentum, setHotPostsMinMomentum] = useState(0);
   const [dailyCap, setDailyCap] = useState(2.0);
   const [monthlyCap, setMonthlyCap] = useState(25.0);
   const [watchThreshold, setWatchThreshold] = useState(65.0);
@@ -157,6 +158,7 @@ export default function SettingsPage() {
     setXListIdsText((activeWorkspace.x_list_ids_json ?? []).join(", "));
     setMonthlyUnitBudget(activeWorkspace.monthly_unit_budget ?? 100_000);
     setHotPostsMinViews(activeWorkspace.hot_posts_min_projected_views ?? 5_000);
+    setHotPostsMinMomentum(activeWorkspace.hot_posts_min_momentum_score ?? 0);
     setDailyCap(activeWorkspace.daily_spend_cap_usd);
     setMonthlyCap(activeWorkspace.monthly_spend_cap_usd);
     setWatchThreshold(activeWorkspace.watch_threshold);
@@ -240,6 +242,7 @@ export default function SettingsPage() {
         x_list_ids_json: parsedXListIds,
         monthly_unit_budget: Number(monthlyUnitBudget),
         hot_posts_min_projected_views: Number(hotPostsMinViews),
+        hot_posts_min_momentum_score: Number(hotPostsMinMomentum),
         daily_spend_cap_usd: Number(dailyCap),
         monthly_spend_cap_usd: Number(monthlyCap),
         watch_threshold: Number(watchThreshold),
@@ -965,6 +968,23 @@ export default function SettingsPage() {
               />
               <p className="mt-1 text-[11px] text-slate-500">
                 Hides posts projected to stay under this many views by 48h. 0 shows everything.
+              </p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1">
+                Hot Posts Min. Momentum Score (0–100)
+              </label>
+              <input
+                type="number"
+                step={5}
+                min={0}
+                max={100}
+                value={hotPostsMinMomentum}
+                onChange={(e) => setHotPostsMinMomentum(Number(e.target.value))}
+                className="w-full rounded-lg bg-surface-850 border border-slate-700 px-3 py-2 text-sm text-white"
+              />
+              <p className="mt-1 text-[11px] text-slate-500">
+                Hides posts whose score badge is below this. 0 shows everything.
               </p>
             </div>
           </div>
