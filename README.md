@@ -18,15 +18,15 @@
 Instead of static "Twitter lists" or vanity engagement dashboards, TweetTracker models how X actually distributes posts across in-network and out-of-network feeds:
 
 - **`Hot Posts` Live Radar (`/radar`):**
-  - Polls your tracked graph every 10 minutes and flags `15–60m` posts outperforming an author's baseline (`2.2x usual` velocity + high-intent bookmarks/quotes) before a thread gets crowded.
-  - Ranks candidates by **`expected_reply_reach_score`** — blending early post momentum, projected reach, your empirical reply yield with that author, and X's **`20x` mutual reply boost** (`Mutuals` filter).
+  - Polls your tracked graph every 10 minutes and lists posts under `90` minutes old whose **projected 48h views** clear your minimum (`Settings → Alert Rules`), so you reply while a thread is still early.
+  - Ranks them by **`expected_reply_reach_score`** — projected reach, your empirical reply yield with that author, how early you are, and X's **`20x` mutual reply boost** (`Mutuals` filter). Each card also shows a momentum score (views vs. the author's usual pace); an optional minimum momentum setting hides slow posts.
   - Recommends **Reply** (for mutuals / warm graph edges) vs. **Quote** (for cold 1-way accounts where `OONRetweetReplyFilter` suppresses cold replies), plus 1-click `Save` (swipe file) and `Skip`.
 - **`Network` Auto-Clustering Graph (`/network`):**
   - Force-directed **Sigma.js WebGL** graph colored automatically via Louvain modularity + Seeded-NMF (`SimClusters` tracer) over time-decayed follow, reply, and quote edges — no manual "circle" tagging required.
   - Scores every tracked account on **`UserCredV2`**, **SALSA Influence**, **Spark Lift**, and **Empirical Bayes `Observed Reply Yield`** (`~avg views/reply` + attributed follower lift).
-  - **Self-pruning & 2-hop discovery:** Seeds act as a 28-day bootstrap (`SEED_BOOTSTRAP_GRACE_DAYS = 28`). Every 6 hours, the worker promotes high-yield rising voices (`<50k` followers, `author_cold_start.rs`) and prunes dead-weight nodes (`< 0.32` hysteresis) automatically.
+  - **Self-pruning & 2-hop discovery:** Seeds act as a 28-day bootstrap (`SEED_BOOTSTRAP_GRACE_DAYS = 28`). Every 6 hours, the worker promotes 2-hop accounts with high core affinity or reply yield (any follower size; `<50k` accounts get a `Rising` badge) and prunes dead-weight nodes (`< 0.32` hysteresis) automatically. Pruned accounts stay out unless someone in your core starts talking to them.
 - **48-Hour Self-Calibrating Tuner & Upstream `Algo Sync Watcher` (`/settings`):**
-  - Grades flagged posts at `t = 48h` (`Alert Hit Rate`, `Breakouts Caught`, `Early Head Start`) and tunes thresholds automatically (with 1-click `Undo Last Tune`).
+  - Grades flagged posts at `t = 48h` (`Alert Hit Rate`, `Breakouts Caught`, `Early Head Start`) and tunes alert thresholds once there are at least `10` true breakouts to learn from — thresholds only move when alert quality improves, and are capped below the `0–100` score ceiling (1-click `Undo Last Tune`).
   - Watches `xai-org/x-algorithm` commits daily against `last_synced_sha`, parses `param!(...)` weight diffs deterministically, and summarizes Rust ranking changes via Gemini or Grok.
 - **Built-In Spend Guardrails (`~$17–$25/mo`):**
   - Pluggable `XDataProvider` router shipping **`TweetAPI.com`** (per-call batching: `200` post snapshots or `200` follow edges for `1` API unit) + **`FixtureProvider`** (`$0` offline mock mode).
@@ -60,8 +60,8 @@ Open **`http://localhost:3000`**, create a workspace (enter your `@handle` and 5
 # 1. Backend API + Worker
 cd backend
 uv sync
-uv run uvicorn tweettracker.main:app --reload --port 8000
-# (in a second terminal: uv run python -m tweettracker.worker)
+uv run uvicorn tweettracker.api.main:app --reload --port 8000
+# (in a second terminal, from backend/: uv run python -m tweettracker.worker.main)
 
 # 2. Next.js 15 Web UI
 cd ../web
