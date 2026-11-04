@@ -96,6 +96,6 @@ Licensed under the **[Apache License 2.0](LICENSE)** (matching upstream [`xai-or
 
 ## Built by 3rd Brain
 
-Built by **Michael Greenberg ([@gentoftech](https://x.com/gentoftech))** at **[3rd Brain](https://3rdbrain.co)**.
+Built by **Michael Greenberg ([@gentoftech](https://x.com/gentoftech))** at **[3rd Brain](https://3rdbrain.co)**, with **Gemini Argon** in **Google Antigravity**.
 
 Want custom AI workflows, internal tools, and AI-powered operations built inside your company? **[3rd Brain](https://3rdbrain.co)** embeds AI operators and engineers directly into your team to ship systems that actually get used — **[book a call at 3rdbrain.co](https://3rdbrain.co)**.
