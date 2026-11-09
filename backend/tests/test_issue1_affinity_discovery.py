@@ -5,7 +5,7 @@ Covers:
 2. Zero fixed per-sync promotion caps (`18` qualifying candidates promoted in a single sync).
 3. Hysteresis affinity pruning (`< 0.32` after `48h` grace) + cold-start co-follow decay (`gamma_boot`) + hysteresis stability band (`[0.32, 0.55)`).
 4. Multi-sync convergence (`adds + prunes -> 0`) and persistent cross-sync `PeerEndorsement` evidence accumulation.
-5. Bootstrap seed `28`-day grace protection + no per-sync or total tracked-account cap, followed by post-`28d` low-yield / dormancy fade & pruning (`MIN_ACTIVE_CORE_FLOOR = 10` unattended safety floor).
+5. Seeds get no protection period + no per-sync or total tracked-account cap; low-yield / dormant seeds fade & prune (`MIN_ACTIVE_CORE_FLOOR = 10` unattended safety floor).
 6. `100,000` monthly unit budget projection, `$0.00025`/unit parity, `throttled` (`>=80%`) and `paused` (`>=95%`) pacing, and `SpendCapExceededError` enforcement.
 7. Per-account reply/quote yield ingestion (`/tw-v2/user/tweets-and-replies` + `OwnFollowerSnapshot` + `2h-48h` batch refresh) and impression-weighted `[0h, 24h]` follower attribution.
 8. Yield-learned core (`C_yield`) driving crawl priority (`crawl_live_seed_network`) and 2-hop candidate discovery (`refresh_rising_candidates`).
@@ -30,7 +30,6 @@ from tweettracker.db import configure_database, dispose_database
 from tweettracker.graph.live_crawler import crawl_live_seed_network
 from tweettracker.graph.reply_yield import (
     MIN_ACTIVE_CORE_FLOOR,
-    SEED_BOOTSTRAP_GRACE_DAYS,
 )
 from tweettracker.graph.service import recompute_workspace_graph
 from tweettracker.models import (
@@ -52,6 +51,7 @@ from tweettracker.providers.spend import (
     estimate_workspace_monthly_units,
 )
 from tweettracker.providers.tweetapi import DEFAULT_USD_PER_UNIT
+from reach_mocks import reach_handlers
 from tweettracker.rising.discovery import (
     CORE_AFFINITY_ADD_THRESHOLD,
     CORE_AFFINITY_PRUNE_THRESHOLD,
@@ -519,13 +519,17 @@ async def test_multi_sync_convergence_and_cross_sync_evidence_accumulation(
             s.last_follow_synced_at = t0 - timedelta(hours=2)
         await session.commit()
 
+    clock = {"now": t0}
+    timeline_handler, details_handler = reach_handlers(now=lambda: clock["now"])
+
     with respx.mock(assert_all_called=False) as router:
         router.get("https://api.tweetapi.com/tw-v2/user/by-username").mock(
             return_value=httpx.Response(200, json={"data": {"id": "999", "username": "operator_hq"}})
         )
         router.get("https://api.tweetapi.com/tw-v2/user/tweets-and-replies").mock(
-            return_value=httpx.Response(200, json={"data": []})
+            side_effect=timeline_handler
         )
+        router.get("https://api.tweetapi.com/tw-v2/tweet/details").mock(side_effect=details_handler)
         router.get("https://api.tweetapi.com/tw-v2/user/by-usernames").mock(
             return_value=httpx.Response(
                 200,
@@ -607,6 +611,7 @@ async def test_multi_sync_convergence_and_cross_sync_evidence_accumulation(
             # Sync 2 at t0 + 13h: crawls core_seed_2..4 + quotes, accumulating onto Sync 1's endorsement -> promotes!
             sync_phase["step"] = 2
             t_sync2 = t0 + timedelta(hours=13)
+            clock["now"] = t_sync2
             s2 = await auto_sync_workspace_network(session, ws_id, now=t_sync2)
             assert "shared_core_peer" in s2["auto_added_handles"]
             assert s2["auto_pruned_count"] == 0
@@ -1327,14 +1332,13 @@ async def test_reply_yield_ingestion_maturing_refresh_and_follower_attribution(
 
 
 @pytest.mark.asyncio
-async def test_bootstrap_seeds_have_28d_grace_then_fade_and_prune_on_low_yield_or_dormancy(
+async def test_seeds_get_no_protection_period_and_prune_on_low_yield_or_dormancy(
     issue1_env: tuple[httpx.AsyncClient, async_sessionmaker[AsyncSession]],
 ) -> None:
-    """Seeds are a 28-day bootstrap only: protected for 28 days, then low-yield or dormant seeds
-    fade and prune (`< 0.32`) once healthy discovered accounts anchor the workspace, while an
-    unattended workspace preserves `MIN_ACTIVE_CORE_FLOOR = 10`.
+    """Seeds follow the same rules as everyone else (issue #1): no protection period. Seeds whose
+    replies flop prune as soon as healthy discovered accounts anchor the workspace; dormant seeds
+    fade and prune later, while an unattended workspace preserves `MIN_ACTIVE_CORE_FLOOR = 10`.
     """
-    assert SEED_BOOTSTRAP_GRACE_DAYS == 28
     assert MIN_ACTIVE_CORE_FLOOR == 10
 
     _client, session_factory = issue1_env
@@ -1432,7 +1436,7 @@ async def test_bootstrap_seeds_have_28d_grace_then_fade_and_prune_on_low_yield_o
             )
         await session.commit()
 
-        # 1. At t0 + 27 days (inside 28-day bootstrap grace period): ZERO bootstrap seeds pruned!
+        # 1. At t0 + 27 days: no protection period, so the two seeds whose replies flopped already prune
         t_27d = t0 + timedelta(days=27)
         for win in winners:
             session.add(
@@ -1449,9 +1453,10 @@ async def test_bootstrap_seeds_have_28d_grace_then_fade_and_prune_on_low_yield_o
         await session.commit()
 
         res_27d = await auto_sync_workspace_network(session, ws.id, now=t_27d)
-        assert set(seed_handles).isdisjoint(res_27d["auto_pruned_handles"])
+        assert {seeds[0].handle, seeds[1].handle}.issubset(set(res_27d["auto_pruned_handles"]))
+        assert not {w.handle for w in winners} & set(res_27d["auto_pruned_handles"])
 
-        # 2. At t0 + 56 days (4 weeks past 28-day grace): ALL 5 bad/dormant bootstrap seeds prune,
+        # 2. At t0 + 56 days: every bad or dormant seed has pruned,
         # while all 5 proven high-yield auto-discovered creators remain tracked and anchor the core!
         t_56d = t0 + timedelta(days=56)
         for win in winners:
@@ -1483,7 +1488,9 @@ async def test_bootstrap_seeds_have_28d_grace_then_fade_and_prune_on_low_yield_o
         await session.commit()
 
         res_56d = await auto_sync_workspace_network(session, ws.id, now=t_56d)
-        assert set(seed_handles).issubset(set(res_56d["auto_pruned_handles"]))
+        assert set(seed_handles).issubset(
+            set(res_27d["auto_pruned_handles"]) | set(res_56d["auto_pruned_handles"])
+        )
         assert res_56d["active_tracked_count"] == 5
 
         winner_handles = {w.handle for w in winners}

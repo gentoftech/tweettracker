@@ -18,6 +18,7 @@ from tweettracker.models import Workspace
 from tweettracker.providers.base import (
     PostRecord,
     ProfileRecord,
+    ReplyRecord,
     ProviderNotConfiguredError,
     ProviderUsageInfo,
 )
@@ -223,6 +224,7 @@ def _normalize_profile(raw: dict[str, Any]) -> ProfileRecord:
         avatar_url=str(avatar) if avatar else None,
         followers_count=followers,
         following_count=following,
+        is_premium=bool(raw.get("isBlueVerified") or raw.get("is_blue_verified")),
     )
 
 
@@ -517,13 +519,15 @@ class TweetAPIProvider:
         session: AsyncSession,
         workspace: Workspace,
         post_ids: list[str],
+        *,
+        ledger_label: str | None = None,
     ) -> list[PostRecord]:
         cleaned = [pid.strip() for pid in post_ids if pid and pid.strip()]
         if not cleaned:
             return []
 
         results: list[PostRecord] = []
-        endpoint = "/tw-v2/tweet/details-by-ids"
+        endpoint = ledger_label or "/tw-v2/tweet/details-by-ids"
 
         # Up to 200 post IDs per 1-unit batch call
         for start in range(0, len(cleaned), 200):
@@ -662,6 +666,7 @@ class TweetAPIProvider:
         username_or_id: str,
         *,
         count: int = 40,
+        ledger_label: str | None = None,
     ) -> list[PostRecord]:
         """Fetches recent timeline posts + replies for `username_or_id` via `/tw-v2/user/tweets-and-replies` (1 unit)."""
         target = _clean_handle(username_or_id)
@@ -676,7 +681,7 @@ class TweetAPIProvider:
             return []
 
         page_size = min(max(int(count), 1), 100)
-        endpoint = "/tw-v2/user/tweets-and-replies"
+        endpoint = ledger_label or "/tw-v2/user/tweets-and-replies"
         await enforce_spend_caps(session, workspace, projected_usd=self.usd_per_unit)
         payload = await self._get_json(
             "/user/tweets-and-replies",
@@ -699,6 +704,60 @@ class TweetAPIProvider:
                 seen_post_ids.add(rec.x_post_id)
                 results.append(rec)
         return results
+
+    async def get_tweet_replies(
+        self,
+        session: AsyncSession,
+        workspace: Workspace,
+        tweet_id: str,
+        *,
+        sort_by: str = "Recency",
+        cursor: str | None = None,
+    ) -> tuple[list[ReplyRecord], str | None]:
+        """One page of replies under `tweet_id` via `/tw-v2/tweet/details` (1 unit per page)."""
+        tid = (tweet_id or "").strip()
+        if not tid:
+            return [], None
+        params: dict[str, Any] = {"tweetId": tid, "sortBy": sort_by}
+        if cursor:
+            params["cursor"] = cursor
+        await enforce_spend_caps(session, workspace, projected_usd=self.usd_per_unit)
+        payload = await self._get_json("/tweet/details", params=params)
+        await log_api_credit(
+            session,
+            workspace_id=workspace.id,
+            provider=self.provider_name,
+            endpoint="/tw-v2/tweet/details",
+            units_consumed=1.0,
+            estimated_usd=self.usd_per_unit,
+        )
+        data_obj = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+        replies: list[ReplyRecord] = []
+        for item in data_obj.get("replies") or []:
+            if not isinstance(item, dict):
+                continue
+            author = _normalize_profile(item.get("author") or {})
+            post_id = str(item.get("id") or item.get("id_str") or "")
+            if not post_id:
+                continue
+            replies.append(
+                ReplyRecord(
+                    x_post_id=post_id,
+                    author_x_user_id=author.x_user_id,
+                    author_handle=author.handle,
+                    author_display_name=author.display_name,
+                    author_followers=author.followers_count,
+                    author_premium=author.is_premium,
+                    created_at_x=_parse_x_datetime(item.get("createdAt") or item.get("created_at")),
+                    views=int(item.get("viewCount") or item.get("view_count") or 0),
+                    likes=int(item.get("likeCount") or item.get("favorite_count") or 0),
+                )
+            )
+        next_cursor = data_obj.get("nextCursor") or data_obj.get("next_cursor")
+        if not next_cursor:
+            pagination = payload.get("pagination") if isinstance(payload.get("pagination"), dict) else {}
+            next_cursor = pagination.get("nextCursor")
+        return replies, (str(next_cursor) if next_cursor else None)
 
     async def get_account_usage(
         self,

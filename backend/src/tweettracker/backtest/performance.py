@@ -15,7 +15,14 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tweettracker.graph.reply_reach import (
+    MIN_MATCHED_SAMPLES,
+    REPLY_REACH_LEDGER_ENDPOINTS,
+    SAMPLE_WINDOW_DAYS,
+)
 from tweettracker.models import (
+    ApiCreditLedger,
+    DiscoveredCandidate,
     OwnFollowerSnapshot,
     OwnReplyOutcome,
     Post,
@@ -202,6 +209,61 @@ async def _accuracy_block(
     }
 
 
+async def _reach_coverage_block(
+    session: AsyncSession, ws: Workspace, now: datetime
+) -> dict[str, Any]:
+    """How much of the network has a measured reply reach, and what measuring it costs."""
+    tracked = list(
+        (
+            await session.execute(
+                select(TrackedAccount).where(
+                    TrackedAccount.workspace_id == ws.id,
+                    TrackedAccount.is_tracked.is_(True),
+                    TrackedAccount.is_muted.is_(False),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    measured = [a for a in tracked if int(a.reply_reach_samples or 0) >= MIN_MATCHED_SAMPLES]
+    cands_measured = int(
+        (
+            await session.execute(
+                select(func.count(DiscoveredCandidate.id)).where(
+                    DiscoveredCandidate.workspace_id == ws.id,
+                    DiscoveredCandidate.reply_reach_samples >= MIN_MATCHED_SAMPLES,
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+    units_30d = float(
+        (
+            await session.execute(
+                select(func.coalesce(func.sum(ApiCreditLedger.units_consumed), 0.0)).where(
+                    ApiCreditLedger.workspace_id == ws.id,
+                    ApiCreditLedger.endpoint.in_(REPLY_REACH_LEDGER_ENDPOINTS),
+                    ApiCreditLedger.created_at >= now - timedelta(days=30),
+                )
+            )
+        ).scalar_one()
+        or 0.0
+    )
+    scores = [float(a.reply_reach_score) for a in measured if a.reply_reach_score is not None]
+    medians = [float(a.reply_reach_median) for a in measured if a.reply_reach_median is not None]
+    return {
+        "sample_window_days": SAMPLE_WINDOW_DAYS,
+        "tracked_accounts": len(tracked),
+        "tracked_measured": len(measured),
+        "candidates_measured": cands_measured,
+        "network_median_reach_score": _median_or_none(scores),
+        "network_median_reply_views": _median_or_none(medians),
+        "units_30d": int(units_30d),
+        "units_per_account_month": (units_30d / len(tracked)) if tracked else None,
+    }
+
+
 async def compute_workspace_performance(
     session: AsyncSession, workspace_id: int, *, now: datetime | None = None
 ) -> dict[str, Any]:
@@ -215,4 +277,5 @@ async def compute_workspace_performance(
         "generated_at": now_utc.isoformat(),
         "success": await _success_block(session, workspace_id, now_utc),
         "accuracy": await _accuracy_block(session, ws, now_utc),
+        "reach": await _reach_coverage_block(session, ws, now_utc),
     }

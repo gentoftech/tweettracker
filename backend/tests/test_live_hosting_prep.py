@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from datetime import datetime, timezone
 import math
 from pathlib import Path
 
@@ -20,6 +21,7 @@ import pytest
 import respx
 from sqlalchemy import select
 
+from reach_mocks import reach_handlers
 from tweettracker.api.main import create_app
 from tweettracker.crypto import clear_runtime_secrets, decrypt_secret
 from tweettracker.db import configure_database, dispose_database
@@ -211,9 +213,14 @@ async def test_live_seed_crawler_mutuals_edges_and_unlimited_size_snowball(
         router.get("https://api.tweetapi.com/tw-v2/user/by-username").mock(
             side_effect=_by_username_handler
         )
-        router.get("https://api.tweetapi.com/tw-v2/user/tweets-and-replies").mock(
-            return_value=httpx.Response(200, json={"data": []})
+        # Reply reach under each candidate: early replies under the 5M celebrity go unseen
+        timeline_handler, details_handler = reach_handlers(
+            now=lambda: datetime.now(timezone.utc), views_by_user_id={"901": 15}
         )
+        router.get("https://api.tweetapi.com/tw-v2/user/tweets-and-replies").mock(
+            side_effect=timeline_handler
+        )
+        router.get("https://api.tweetapi.com/tw-v2/tweet/details").mock(side_effect=details_handler)
 
         def _following_handler(request: httpx.Request) -> httpx.Response:
             assert request.headers.get("X-API-Key") == "test-live-crawler-key-5555"

@@ -6,6 +6,7 @@ from tweettracker.providers.base import (
     InteractionRecord,
     PostRecord,
     ProfileRecord,
+    ReplyRecord,
     ProviderNotConfiguredError,
     ProviderUsageInfo,
     SpendCapExceededError,
@@ -39,6 +40,7 @@ from tweettracker.providers.tweetapi import (
 )
 
 __all__ = [
+    "ReplyRecord",
     "FixtureProvider",
     "GeminiProvider",
     "GrokProvider",

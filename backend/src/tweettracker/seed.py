@@ -1023,6 +1023,18 @@ def _ensure_additive_columns(sync_conn: Connection) -> None:
                 "ALTER TABLE workspaces ADD COLUMN hot_posts_min_momentum_score FLOAT NOT NULL DEFAULT 0.0",
             ),
             (
+                "owner_followers_count",
+                "ALTER TABLE workspaces ADD COLUMN owner_followers_count INTEGER",
+            ),
+            (
+                "owner_is_premium",
+                "ALTER TABLE workspaces ADD COLUMN owner_is_premium BOOLEAN",
+            ),
+            (
+                "owner_profile_refreshed_at",
+                "ALTER TABLE workspaces ADD COLUMN owner_profile_refreshed_at TIMESTAMP",
+            ),
+            (
                 "last_discovery_sync_at",
                 "ALTER TABLE workspaces ADD COLUMN last_discovery_sync_at TIMESTAMP",
             ),
@@ -1047,6 +1059,26 @@ def _ensure_additive_columns(sync_conn: Connection) -> None:
             (
                 "core_affinity_score",
                 "ALTER TABLE tracked_accounts ADD COLUMN core_affinity_score FLOAT NOT NULL DEFAULT 0.0",
+            ),
+            (
+                "reply_reach_median",
+                "ALTER TABLE tracked_accounts ADD COLUMN reply_reach_median FLOAT",
+            ),
+            (
+                "reply_reach_share_500",
+                "ALTER TABLE tracked_accounts ADD COLUMN reply_reach_share_500 FLOAT",
+            ),
+            (
+                "reply_reach_samples",
+                "ALTER TABLE tracked_accounts ADD COLUMN reply_reach_samples INTEGER NOT NULL DEFAULT 0",
+            ),
+            (
+                "reply_reach_score",
+                "ALTER TABLE tracked_accounts ADD COLUMN reply_reach_score FLOAT",
+            ),
+            (
+                "reply_reach_sampled_at",
+                "ALTER TABLE tracked_accounts ADD COLUMN reply_reach_sampled_at TIMESTAMP",
             ),
             (
                 "yield_score",
@@ -1077,6 +1109,26 @@ def _ensure_additive_columns(sync_conn: Connection) -> None:
             (
                 "core_affinity_score",
                 "ALTER TABLE discovered_candidates ADD COLUMN core_affinity_score FLOAT NOT NULL DEFAULT 0.0",
+            ),
+            (
+                "reply_reach_median",
+                "ALTER TABLE discovered_candidates ADD COLUMN reply_reach_median FLOAT",
+            ),
+            (
+                "reply_reach_share_500",
+                "ALTER TABLE discovered_candidates ADD COLUMN reply_reach_share_500 FLOAT",
+            ),
+            (
+                "reply_reach_samples",
+                "ALTER TABLE discovered_candidates ADD COLUMN reply_reach_samples INTEGER NOT NULL DEFAULT 0",
+            ),
+            (
+                "reply_reach_score",
+                "ALTER TABLE discovered_candidates ADD COLUMN reply_reach_score FLOAT",
+            ),
+            (
+                "reply_reach_sampled_at",
+                "ALTER TABLE discovered_candidates ADD COLUMN reply_reach_sampled_at TIMESTAMP",
             ),
             (
                 "yield_score",

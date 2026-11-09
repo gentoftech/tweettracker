@@ -18,7 +18,9 @@ from tweettracker.config import get_settings
 from tweettracker.crypto import refresh_runtime_secrets
 from tweettracker.db import configure_database, dispose_database, get_workspace_lock
 from tweettracker.graph import recompute_workspace_graph
+from tweettracker.graph.reply_reach import run_reply_reach_cycle
 from tweettracker.models import Post, Workspace
+from tweettracker.providers.spend import estimate_workspace_monthly_units
 from tweettracker.radar import poll_workspace_radar
 from tweettracker.rising import auto_sync_workspace_network
 from tweettracker.seed import bootstrap_database
@@ -120,6 +122,29 @@ async def run_worker_cycle(
                         await grade_workspace_outcomes(session, ws_id, now=now_utc)
 
                         ws = await session.get(Workspace, ws_id)
+                        if ws is not None:
+                            # Reply reach: sample young tracked posts, read matured views,
+                            # refresh estimates before discovery decides adds and prunes
+                            try:
+                                reach_mode = str(
+                                    (
+                                        await estimate_workspace_monthly_units(
+                                            session, ws, now=now_utc
+                                        )
+                                    ).get("discovery_throttle_mode", "normal")
+                                )
+                                reach_summary = await run_reply_reach_cycle(
+                                    session, ws, now=now_utc, throttle_mode=reach_mode
+                                )
+                                await session.commit()
+                                if any(reach_summary.values()):
+                                    logger.info(
+                                        "Reply reach for workspace_id=%d: %s", ws_id, reach_summary
+                                    )
+                            except Exception:
+                                await session.rollback()
+                                logger.exception("Reply-reach cycle failed for workspace_id=%d", ws_id)
+                            ws = await session.get(Workspace, ws_id)
                         mem_last_disc = _ensure_utc(sched.last_discovery_sync_at.get(ws_id))
                         db_last_disc = (
                             _ensure_utc(ws.last_discovery_sync_at) if ws is not None else None

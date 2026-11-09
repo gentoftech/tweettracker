@@ -36,7 +36,6 @@ from tweettracker.graph.nmf_simclusters import (
 )
 from tweettracker.graph.reply_yield import (
     MIN_ACTIVE_CORE_FLOOR,
-    SEED_BOOTSTRAP_GRACE_DAYS,
     ReplyOutcomeSample,
     compute_account_yield_metrics,
     compute_reach_prior_score,
@@ -1173,6 +1172,8 @@ async def refresh_rising_candidates(
 CORE_AFFINITY_ADD_THRESHOLD: float = 0.55
 CORE_AFFINITY_THROTTLED_ADD_THRESHOLD: float = 0.63
 CORE_AFFINITY_PRUNE_THRESHOLD: float = 0.32
+# Minimum similarity to the network for a candidate to be considered at all (relevance floor)
+RELEVANCE_FLOOR: float = 0.30
 AUTO_PRUNE_INACTIVE_DAYS: int = 30
 STALE_FOLLOW_CANDIDATE_DAYS: int = 7
 STALE_CANDIDATE_RETENTION_DAYS: int = 14
@@ -1620,15 +1621,15 @@ async def auto_sync_workspace_network(
     *,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Yield-Learned Core + SimClusters self-converging network sync:
+    """Reply-reach network sync:
     1) Paces live crawls against `monthly_unit_budget` (100k default; throttles >=80%, pauses >=95%)
        and syncs `@my_x_handle` replies/quotes + follower snapshot (~1-2 units/sync).
     2) Recomputes `yield_score`, `core_affinity_score`, and `UserCredV2` across tracked accounts.
-    3) Unified hysteresis prune (`< 0.32`): `48h` grace for auto-adds and `28`-day bootstrap grace
-       (`SEED_BOOTSTRAP_GRACE_DAYS = 28`) for imported seeds, with `MIN_ACTIVE_CORE_FLOOR = 10`
-       safety floor for unattended workspaces.
-    4) Promotes untracked candidates (any follower size, zero 500k/2M cliffs, zero tracked-account caps)
-       exceeding `CORE_AFFINITY_ADD_THRESHOLD` (0.55) via core ties or empirical reply yield,
+    3) Prunes on measured reply reach (below a fixed floor, so pruning can't ratchet) for seeds
+       and auto-adds alike; unmeasured accounts fall back to the affinity rule (`< 0.32` after 48h).
+       `MIN_ACTIVE_CORE_FLOOR = 10` is a safety floor when the network has no healthy core.
+    4) Tests the most relevant untested candidates' reply reach, then promotes candidates that clear
+       the relevance floor and beat the network's median reply reach (or the owner's proven yield),
        then garbage-collects stale candidate staging rows and orphaned endorsements.
     """
     now_utc = _ensure_dt_utc(now) if now is not None else datetime.now(timezone.utc)
@@ -1688,12 +1689,9 @@ async def auto_sync_workspace_network(
         .all()
     )
 
-    # 1. Unified Hysteresis Yield/Affinity Prune (<0.32):
-    #    - Auto-tracked accounts: 48h grace (`BOOTSTRAP_GRACE_HOURS`) + 30d inactivity sweep
-    #    - Bootstrap seeds (`is_auto_tracked == False`): 28-day grace (`SEED_BOOTSTRAP_GRACE_DAYS`),
-    #      plus `MIN_ACTIVE_CORE_FLOOR = 10` safety guard for unattended workspaces.
+    # 1. Prune: measured reply reach first; affinity for unmeasured accounts (48h grace) and a
+    #    30-day inactivity sweep. Seeds get no protection period.
     auto_grace_cutoff = now_utc - timedelta(hours=BOOTSTRAP_GRACE_HOURS)
-    seed_grace_cutoff = now_utc - timedelta(days=SEED_BOOTSTRAP_GRACE_DAYS)
     cutoff_30d = now_utc - timedelta(days=AUTO_PRUNE_INACTIVE_DAYS)
 
     def _acct_eff_score(a: TrackedAccount) -> float:
@@ -1701,57 +1699,71 @@ async def auto_sync_workspace_network(
             return float(a.yield_score or 0.0)
         return float(a.core_affinity_score or 0.0)
 
+    from tweettracker.graph.reply_reach import (
+        THROTTLED_ADD_MARGIN,
+        is_measured,
+        reach_thresholds,
+        recompute_reach_estimates,
+        test_candidates,
+    )
+
+    reach_add_threshold, reach_prune_threshold = reach_thresholds(
+        [float(a.reply_reach_score) for a in recomp.accounts if is_measured(a)]
+    )
+
     active_accts_for_prune = sorted(
         list(recomp.accounts),
-        key=lambda a: (_acct_eff_score(a), float(a.core_affinity_score or 0.0), a.id),
+        key=lambda a: (
+            float(a.reply_reach_score) if is_measured(a) else _acct_eff_score(a),
+            float(a.core_affinity_score or 0.0),
+            a.id,
+        ),
     )
 
     active_remaining = len(active_accts_for_prune)
+    # With a healthy core (3+ accounts clearly worth keeping) the network can shrink freely;
+    # without one, keep MIN_ACTIVE_CORE_FLOOR accounts so an unattended workspace never empties.
     healthy_active_count = sum(
-        1 for a in active_accts_for_prune if _acct_eff_score(a) >= 0.45
+        1
+        for a in active_accts_for_prune
+        if (
+            float(a.reply_reach_score) >= reach_add_threshold
+            if is_measured(a)
+            else _acct_eff_score(a) >= 0.45
+        )
     )
-
+    prune_floor = 1 if healthy_active_count >= 3 else MIN_ACTIVE_CORE_FLOOR
     auto_pruned_handles: list[str] = []
     still_tracked_30d: list[TrackedAccount] = []
 
     for acct in active_accts_for_prune:
-        eff_score = _acct_eff_score(acct)
-        if bool(acct.is_auto_tracked):
-            auto_ts = (
-                _ensure_dt_utc(acct.auto_tracked_at)
-                if acct.auto_tracked_at is not None
-                else None
-            )
+        owner_proven = int(acct.reply_sample_count or 0) >= 2 and float(acct.yield_score or 0.0) >= 0.55
+        if is_measured(acct):
+            # Measured reply reach decides, for seeds and auto-adds alike
             if (
-                auto_ts is not None
-                and auto_ts <= auto_grace_cutoff
-                and eff_score < CORE_AFFINITY_PRUNE_THRESHOLD
-                and active_remaining > 1
+                float(acct.reply_reach_score) < reach_prune_threshold
+                and not owner_proven
+                and active_remaining > prune_floor
             ):
                 acct.is_tracked = False
                 auto_pruned_handles.append(acct.handle)
                 active_remaining -= 1
-                continue
-            if auto_ts is not None and auto_ts <= cutoff_30d:
-                still_tracked_30d.append(acct)
-        else:
-            seed_ts = (
-                _ensure_dt_utc(acct.created_at)
-                if acct.created_at is not None
-                else now_utc
-            )
-            if seed_ts > seed_grace_cutoff or eff_score >= CORE_AFFINITY_PRUNE_THRESHOLD:
-                continue
-            if int(acct.reply_sample_count or 0) >= 2:
-                can_prune_seed = active_remaining > 2
-            elif healthy_active_count >= 3:
-                can_prune_seed = active_remaining > 3
-            else:
-                can_prune_seed = active_remaining > MIN_ACTIVE_CORE_FLOOR
-            if can_prune_seed:
-                acct.is_tracked = False
-                auto_pruned_handles.append(acct.handle)
-                active_remaining -= 1
+            continue
+        # Not measured yet: the earlier affinity rule, with no extra protection for seeds
+        added_at = acct.auto_tracked_at if bool(acct.is_auto_tracked) else acct.created_at
+        added_ts = _ensure_dt_utc(added_at) if added_at is not None else now_utc
+        if (
+            added_ts <= auto_grace_cutoff
+            and _acct_eff_score(acct) < CORE_AFFINITY_PRUNE_THRESHOLD
+            and not owner_proven
+            and active_remaining > prune_floor
+        ):
+            acct.is_tracked = False
+            auto_pruned_handles.append(acct.handle)
+            active_remaining -= 1
+            continue
+        if added_ts <= cutoff_30d:
+            still_tracked_30d.append(acct)
 
     if still_tracked_30d:
         cand_ids_set = {a.id for a in still_tracked_30d}
@@ -1788,7 +1800,7 @@ async def auto_sync_workspace_network(
                 or acct.id in recent_inter_accounts
                 or acct.id in recent_edge_accounts
                 or (int(acct.reply_sample_count or 0) > 0 and _acct_eff_score(acct) >= 0.50)
-                or active_remaining <= 1
+                or active_remaining <= prune_floor
             ):
                 continue
             acct.is_tracked = False
@@ -1871,32 +1883,76 @@ async def auto_sync_workspace_network(
 
         pruned_this_sync = {h.strip().lower() for h in auto_pruned_handles}
 
-        def _cand_qualifying_score(c: DiscoveredCandidate) -> float:
-            if int(c.reply_sample_count or 0) > 0:
-                return float(c.yield_score or 0.0)
-            return max(float(c.yield_score or 0.0), float(c.core_affinity_score or 0.0))
-
-        qualifying = [
-            c
-            for c in all_cands
-            if _cand_qualifying_score(c) >= effective_add_threshold
-            and (
-                len(core_ties_by_cand.get(c.id, set())) >= 2
+        def _is_relevant(c: DiscoveredCandidate) -> bool:
+            # Similarity to the network is the relevance floor, not the admission rule
+            return (
+                float(c.core_affinity_score or 0.0) >= RELEVANCE_FLOOR
+                or len(core_ties_by_cand.get(c.id, set())) >= 2
                 or has_mutual_conv_by_cand.get(c.id, False)
+                or int(c.reply_sample_count or 0) >= 1
+            )
+
+        def _eligible(c: DiscoveredCandidate) -> bool:
+            h = c.handle.strip().lower()
+            return (
+                h not in muted_handles
+                and h not in already_tracked_handles
+                and h not in pruned_this_sync
+            )
+
+        relevant_cands = sorted(
+            (c for c in all_cands if _is_relevant(c) and _eligible(c)),
+            key=lambda c: (-float(c.core_affinity_score or 0.0), c.id),
+        )
+        # Measure reply reach on the most relevant untested candidates before deciding
+        if await test_candidates(
+            session, ws, relevant_cands, now=now_utc, throttle_mode=throttle_mode
+        ):
+            await recompute_reach_estimates(session, ws, now=now_utc)
+
+        cand_add_threshold = reach_add_threshold + (
+            THROTTLED_ADD_MARGIN if throttle_mode == "throttled" else 0.0
+        )
+
+        def _cand_qualifying_score(c: DiscoveredCandidate) -> float:
+            if is_measured(c):
+                return float(c.reply_reach_score)
+            return float(c.yield_score or 0.0)
+
+        if ws.x_data_provider == "fixture":
+            # Offline demo data has no real replies to measure reach from: keep the similarity rule
+            def _cand_qualifying_score(c: DiscoveredCandidate) -> float:
+                if int(c.reply_sample_count or 0) > 0:
+                    return float(c.yield_score or 0.0)
+                return max(float(c.yield_score or 0.0), float(c.core_affinity_score or 0.0))
+
+            qualifying = [
+                c
+                for c in relevant_cands
+                if _cand_qualifying_score(c) >= effective_add_threshold
+                and (
+                    len(core_ties_by_cand.get(c.id, set())) >= 2
+                    or has_mutual_conv_by_cand.get(c.id, False)
+                    or (
+                        int(c.reply_sample_count or 0) >= 1
+                        and float(c.yield_score or 0.0) >= effective_add_threshold
+                    )
+                )
+            ]
+        else:
+            qualifying = [
+                c
+                for c in relevant_cands
+                if (is_measured(c) and float(c.reply_reach_score) >= cand_add_threshold)
                 or (
                     int(c.reply_sample_count or 0) >= 1
                     and float(c.yield_score or 0.0) >= effective_add_threshold
                 )
-            )
-            and c.handle.strip().lower() not in muted_handles
-            and c.handle.strip().lower() not in already_tracked_handles
-            and c.handle.strip().lower() not in pruned_this_sync
-        ]
+            ]
         qualifying.sort(
             key=lambda c: (
                 -_cand_qualifying_score(c),
                 -float(c.core_affinity_score or 0.0),
-                -float(c.peer_respect_score or 0.0),
                 c.id,
             )
         )
@@ -1967,6 +2023,8 @@ async def auto_sync_workspace_network(
         "budget_throttle_mode": str(post_proj["discovery_throttle_mode"]),
         "add_threshold_used": effective_add_threshold,
         "prune_threshold_used": CORE_AFFINITY_PRUNE_THRESHOLD,
+        "reach_add_threshold": reach_add_threshold,
+        "reach_prune_threshold": reach_prune_threshold,
         "auto_added_handles": auto_added_handles,
         "auto_pruned_handles": auto_pruned_handles,
     }

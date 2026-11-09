@@ -59,6 +59,7 @@ function Tip({ title, children }: { title: string; children: ReactNode }) {
 export function PerformancePanel({ perf }: { perf: PerformanceResponse }) {
   const s = perf.success;
   const a = perf.accuracy;
+  const r = perf.reach;
   const days = s.window_days;
 
   return (
@@ -236,6 +237,83 @@ export function PerformancePanel({ perf }: { perf: PerformanceResponse }) {
           />
         </div>
       </div>
+
+      {r && (
+        <div>
+          <div className="text-xs font-semibold text-slate-200 mb-2">
+            Reply reach · how replies do under each account
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <MetricCard
+              label="Accounts measured"
+              value={`${r.tracked_measured.toLocaleString()} / ${r.tracked_accounts.toLocaleString()}`}
+              sub={`${r.candidates_measured.toLocaleString()} candidates measured before tracking`}
+              tip={
+                <Tip title="Accounts measured">
+                  <p>
+                    How many tracked accounts have a measured reply reach: what an early reply from
+                    an account like yours gets under their posts.
+                  </p>
+                  <p>
+                    How it&apos;s measured: from everyone&apos;s replies, not just yours. TweetTracker
+                    samples one young post per account about once a day, keeps only replies posted
+                    in the first 60 minutes by accounts with a tenth to ten times your followers (and
+                    the same Premium status where possible), and reads their views a day later. An
+                    account counts as measured once it has 5 matching replies from the last 30 days.
+                  </p>
+                  <p>
+                    Why it matters: a candidate is added when its reply reach beats the typical
+                    tracked account, and a tracked account is removed when early replies there go
+                    essentially unseen, whether or not you&apos;ve replied there yet.
+                  </p>
+                </Tip>
+              }
+            />
+            <MetricCard
+              label="Typical early-reply views"
+              value={fmtInt(r.network_median_reply_views)}
+              valueClass="text-sky-300"
+              sub="median across measured accounts"
+              tip={
+                <Tip title="Typical early-reply views">
+                  <p>
+                    For each measured account, the median views on early replies from accounts like
+                    yours; this card shows the middle value across those accounts.
+                  </p>
+                  <p>
+                    Reading it: this is roughly what a reply posted early, under a typical post from
+                    your network, gets. It should rise over time as the network replaces accounts
+                    where replies go unseen.
+                  </p>
+                </Tip>
+              }
+            />
+            <MetricCard
+              label="Measurement cost"
+              value={fmtInt(r.units_30d)}
+              sub={
+                r.units_per_account_month === null
+                  ? "TweetAPI calls in the last 30 days"
+                  : `calls last 30 days · ~${fmtInt(r.units_per_account_month)} per account a month`
+              }
+              tip={
+                <Tip title="Measurement cost">
+                  <p>
+                    TweetAPI calls spent measuring reply reach in the last 30 days: reading reply
+                    pages under sampled posts, reading their views a day later, and checking
+                    candidates&apos; recent posts.
+                  </p>
+                  <p>
+                    It counts against your TweetAPI plan along with Hot Posts polling and network
+                    discovery. Discovery slows down automatically if the month is projected to run
+                    over budget.
+                  </p>
+                </Tip>
+              }
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -314,9 +314,21 @@ export interface PerformanceAccuracy {
   pick_lift_min_samples: number;
 }
 
+export interface PerformanceReach {
+  sample_window_days: number;
+  tracked_accounts: number;
+  tracked_measured: number;
+  candidates_measured: number;
+  network_median_reach_score: number | null;
+  network_median_reply_views: number | null;
+  units_30d: number;
+  units_per_account_month: number | null;
+}
+
 export interface PerformanceResponse {
   workspace_id: number;
   generated_at: string;
   success: PerformanceSuccess;
   accuracy: PerformanceAccuracy;
+  reach?: PerformanceReach;
 }

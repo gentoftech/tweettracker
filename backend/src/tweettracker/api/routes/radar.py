@@ -28,6 +28,7 @@ from tweettracker.api.deps import (
 )
 from tweettracker.config import Settings
 from tweettracker.db import get_session_factory, get_workspace_lock
+from tweettracker.graph.reply_reach import is_measured as is_reach_measured
 from tweettracker.models import (
     AccountCommunityMembership,
     AlertDelivery,
@@ -58,6 +59,23 @@ from tweettracker.radar import (
 
 # Hot Posts reply window: past this, a new reply lands far down the thread
 HOT_POSTS_MAX_AGE_MINUTES: float = 90.0
+# Author factor for accounts whose reply reach isn't measured yet (neutral, not seed similarity)
+UNMEASURED_AUTHOR_FACTOR: float = 0.4
+# Owner replies to an author before the owner's own results fully replace measured reply reach
+OWNER_REPLIES_FOR_FULL_WEIGHT: float = 5.0
+
+
+
+def author_reply_factor(author: TrackedAccount) -> float:
+    """[0, 1] per-author factor for Hot Posts: measured reply reach (everyone's early replies
+    under this author's posts), moved toward the owner's own reply results as they accumulate.
+    Unmeasured authors get a neutral value rather than their similarity to the seeds."""
+    rep_samples = int(getattr(author, "reply_sample_count", 0) or 0)
+    raw_yield = min(1.0, max(0.0, float(getattr(author, "yield_score", 0.0) or 0.0)))
+    base = float(author.reply_reach_score) if is_reach_measured(author) else UNMEASURED_AUTHOR_FACTOR
+    owner_weight = min(1.0, rep_samples / OWNER_REPLIES_FOR_FULL_WEIGHT) if rep_samples > 0 else 0.0
+    return min(1.0, max(0.0, (1.0 - owner_weight) * base + owner_weight * raw_yield))
+
 
 router = APIRouter(
     prefix="/api/workspaces",
@@ -301,15 +319,8 @@ def _build_post_card(
     rep_samples = int(getattr(author, "reply_sample_count", 0) or 0)
     avg_rep_views = round(float(getattr(author, "avg_reply_views", 0.0) or 0.0), 1)
     attr_follows = round(float(getattr(author, "attributed_follows_30d", 0.0) or 0.0), 2)
-    raw_yield = float(getattr(author, "yield_score", 0.0) or 0.0)
-    if rep_samples > 0 or raw_yield > 0.0:
-        eff_yield = min(1.0, max(0.0, raw_yield))
-    else:
-        eff_yield = (
-            min(1.0, max(0.0, float(author.core_affinity_score or 0.5)))
-            if float(author.core_affinity_score or 0.0) > 0.0
-            else 0.5
-        )
+    reach_measured = is_reach_measured(author)
+    eff_yield = author_reply_factor(author)
     projected_48h_views = project_48h_views(
         views=post.latest_views,
         age_minutes=float(age_minutes),
@@ -346,6 +357,11 @@ def _build_post_card(
         )
         why_reasons.append(
             f"Your replies to @{author.handle} average ~{int(round(avg_rep_views)):,} views{foll_suffix}"
+        )
+    if reach_measured and author.reply_reach_median is not None:
+        why_reasons.append(
+            f"Early replies from accounts your size here get ~{int(round(author.reply_reach_median)):,} views "
+            f"({int(round(float(author.reply_reach_share_500 or 0.0) * 100))}% clear 500)"
         )
     if inter_items:
         notable = ", ".join(f"@{it['actor_handle']}" for it in inter_items[:2])
@@ -428,6 +444,9 @@ def _build_post_card(
             "user_cred_v2": round(float(author.user_cred_v2), 1),
             "yield_score": round(eff_yield, 4),
             "reply_sample_count": rep_samples,
+            "reply_reach_median": author.reply_reach_median,
+            "reply_reach_share_500": author.reply_reach_share_500,
+            "reply_reach_samples": int(author.reply_reach_samples or 0),
             "avg_reply_views": avg_rep_views,
             "attributed_follows_30d": attr_follows,
             "catalysis_lift": round(float(author.catalysis_lift), 2),

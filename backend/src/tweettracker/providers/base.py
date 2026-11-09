@@ -44,6 +44,22 @@ class ProfileRecord:
     avatar_url: str | None = None
     followers_count: int = 0
     following_count: int = 0
+    is_premium: bool = False
+
+
+@dataclass(slots=True)
+class ReplyRecord:
+    """One reply under a post, as returned in a tweet's conversation page."""
+
+    x_post_id: str
+    author_x_user_id: str
+    author_handle: str
+    created_at_x: datetime
+    author_display_name: str = ""
+    author_followers: int = 0
+    author_premium: bool = False
+    views: int = 0
+    likes: int = 0
 
 
 @dataclass(slots=True)

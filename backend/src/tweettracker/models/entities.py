@@ -54,6 +54,10 @@ class Workspace(Base):
     max_alerts_per_hour: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
     webhook_urls_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     last_discovery_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
+    # Owner's own profile, used to compare reply reach like-for-like (follower range, Premium)
+    owner_followers_count: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    owner_is_premium: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=None)
+    owner_profile_refreshed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
@@ -135,6 +139,13 @@ class TrackedAccount(Base):
     salsa_scout: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     user_cred_v2: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     core_affinity_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    # Reply reach: what an early reply from an account like the owner's gets under this account's
+    # posts, measured from everyone's replies (median views, share clearing 500, matched samples)
+    reply_reach_median: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
+    reply_reach_share_500: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
+    reply_reach_samples: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    reply_reach_score: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
+    reply_reach_sampled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
     yield_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     reply_sample_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     avg_reply_views: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
@@ -420,6 +431,13 @@ class DiscoveredCandidate(Base):
     peer_respect_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     combined_rising_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, index=True)
     core_affinity_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    # Reply reach: what an early reply from an account like the owner's gets under this account's
+    # posts, measured from everyone's replies (median views, share clearing 500, matched samples)
+    reply_reach_median: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
+    reply_reach_share_500: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
+    reply_reach_samples: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    reply_reach_score: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
+    reply_reach_sampled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
     yield_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     reply_sample_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     avg_reply_views: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
@@ -527,6 +545,36 @@ class OwnFollowerSnapshot(Base):
         DateTime(timezone=True), nullable=False, default=utc_now, index=True
     )
     followers_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class ReplyReachSample(Base):
+    """One early reply by someone else under a sampled post; its views are read once matured (24h+)."""
+
+    __tablename__ = "reply_reach_samples"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "reply_x_post_id", name="uq_reply_reach_samples_ws_reply"),
+        Index("ix_reply_reach_samples_ws_author", "workspace_id", "author_handle"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    workspace_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    author_handle: Mapped[str] = mapped_column(String(64), nullable=False)
+    parent_x_post_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    parent_created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    reply_x_post_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    replier_handle: Mapped[str] = mapped_column(String(64), nullable=False)
+    replier_x_user_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    replier_display_name: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    replier_followers: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    replier_premium: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    reply_created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    minutes_after_parent: Mapped[float] = mapped_column(Float, nullable=False)
+    views: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    matured: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
+    sampled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+    refreshed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
 
 
 class OwnReplyOutcome(Base):
