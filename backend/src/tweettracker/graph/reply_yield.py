@@ -440,6 +440,10 @@ async def sync_own_reply_yield(
     for rec in own_posts:
         if rec.is_retweet or not (rec.is_reply or rec.is_quote):
             continue
+        # The tweets-and-replies timeline also carries other people's posts (e.g. ones you
+        # retweeted, surfaced as their quote/reply); only count posts you actually wrote.
+        if _norm_handle(rec.author_handle) != my_handle:
+            continue
         reply_x_id = (rec.x_post_id or "").strip()
         if not reply_x_id:
             continue
@@ -598,6 +602,11 @@ async def sync_own_reply_yield(
             for rec in refreshed_recs:
                 row = outcome_by_x_id.get(rec.x_post_id)
                 if row is None:
+                    continue
+                if _norm_handle(rec.author_handle) != my_handle:
+                    # Recorded before the author check existed; not a post you wrote
+                    await session.delete(row)
+                    outcome_by_x_id.pop(rec.x_post_id, None)
                     continue
                 row.latest_views = max(int(row.latest_views or 0), int(rec.views or 0))
                 row.latest_likes = max(int(row.latest_likes or 0), int(rec.likes or 0))

@@ -1222,6 +1222,17 @@ async def test_reply_yield_ingestion_maturing_refresh_and_follower_attribution(
                                 "followerCount": foll_cnt,
                             },
                         },
+                        {
+                            # Someone else's quote you retweeted: it shows up in your
+                            # tweets-and-replies timeline but must never count as yours
+                            "id": "retweeted_quote_by_other",
+                            "type": "quote",
+                            "text": "Big claim about GPUs",
+                            "created_at": (t0 - timedelta(minutes=20)).isoformat().replace("+00:00", "Z"),
+                            "quotedTweet": {"id": "q_src_1", "author": {"username": "someone_else"}},
+                            "viewCount": 103_740,
+                            "author": {"id": "999", "username": "big_other_account"},
+                        },
                     ]
                 },
             )
@@ -1283,6 +1294,7 @@ async def test_reply_yield_ingestion_maturing_refresh_and_follower_attribution(
             )
             by_rid = {o.x_reply_post_id: o for o in outcomes}
             assert by_rid["older_offpage_reply_0"].latest_views == 5_200
+            assert "retweeted_quote_by_other" not in by_rid
             assert by_rid["rep_win_1"].latest_views == 8_400
             assert by_rid["rep_win_1"].from_hot_posts is True
             assert by_rid["rep_win_1"].source_post_id == hot_post_id

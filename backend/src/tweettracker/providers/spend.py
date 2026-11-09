@@ -6,12 +6,17 @@ from datetime import datetime, timezone
 import math
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tweettracker.config import Settings
 from tweettracker.models import ApiCreditLedger, Post, TrackedAccount, Workspace
 from tweettracker.providers.base import SpendCapExceededError
+
+
+# LLM calls log tokens as "units"; they cost dollars but never count against the X-data
+# provider's monthly call plan (e.g. TweetAPI's 100k units).
+LLM_PROVIDER_NAMES: tuple[str, ...] = ("google_gemini", "xai_grok", "openai", "anthropic", "deepinfra")
 
 
 def _ensure_utc(dt: datetime | None = None) -> datetime:
@@ -33,19 +38,26 @@ async def get_workspace_spend_totals(
     workspace_id: int,
     now: datetime | None = None,
 ) -> tuple[float, float, float, float]:
-    """Returns (daily_usd, monthly_usd, daily_units, monthly_units) for a workspace."""
+    """Returns (daily_usd, monthly_usd, daily_units, monthly_units) for a workspace.
+
+    USD covers every provider; units cover X-data provider calls only (LLM tokens excluded).
+    """
     day_start, month_start = _utc_day_and_month_starts(now)
+    x_units = case(
+        (ApiCreditLedger.provider.in_(LLM_PROVIDER_NAMES), 0.0),
+        else_=ApiCreditLedger.units_consumed,
+    )
 
     day_stmt = select(
         func.coalesce(func.sum(ApiCreditLedger.estimated_usd), 0.0),
-        func.coalesce(func.sum(ApiCreditLedger.units_consumed), 0.0),
+        func.coalesce(func.sum(x_units), 0.0),
     ).where(
         ApiCreditLedger.workspace_id == workspace_id,
         ApiCreditLedger.created_at >= day_start,
     )
     month_stmt = select(
         func.coalesce(func.sum(ApiCreditLedger.estimated_usd), 0.0),
-        func.coalesce(func.sum(ApiCreditLedger.units_consumed), 0.0),
+        func.coalesce(func.sum(x_units), 0.0),
     ).where(
         ApiCreditLedger.workspace_id == workspace_id,
         ApiCreditLedger.created_at >= month_start,

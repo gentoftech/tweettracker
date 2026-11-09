@@ -286,3 +286,37 @@ export interface BacktestPromoteResponse {
   version: ChangelogVersion;
   param_diffs: ParamDiffEntry[];
 }
+
+export interface PerformanceSuccess {
+  window_days: number;
+  net_new_followers: number | null;
+  prev_net_new_followers: number | null;
+  replies_sent: number;
+  reply_impressions: number;
+  median_views_per_reply: number | null;
+  prev_replies_sent: number;
+  prev_reply_impressions: number;
+  prev_median_views_per_reply: number | null;
+}
+
+export interface PerformanceAccuracy {
+  window_days: number;
+  graded_posts: number;
+  median_actual_vs_projected: number | null;
+  share_within_2x: number | null;
+  median_share_views_still_ahead: number | null;
+  pick_lift_window_days: number;
+  hot_posts_replies: number;
+  other_replies: number;
+  hot_posts_median_views: number | null;
+  other_median_views: number | null;
+  pick_lift: number | null;
+  pick_lift_min_samples: number;
+}
+
+export interface PerformanceResponse {
+  workspace_id: number;
+  generated_at: string;
+  success: PerformanceSuccess;
+  accuracy: PerformanceAccuracy;
+}

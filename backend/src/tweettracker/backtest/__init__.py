@@ -4,6 +4,7 @@ from tweettracker.backtest.grader import (
     compute_workspace_scorecard,
     grade_workspace_outcomes,
 )
+from tweettracker.backtest.performance import compute_workspace_performance
 from tweettracker.backtest.replay import (
     FusionCalibrationParams,
     ResolvedAlgoConfig,
@@ -31,6 +32,7 @@ from tweettracker.backtest.tuner import (
 )
 
 __all__ = [
+    "compute_workspace_performance",
     "FusionCalibrationParams",
     "ResolvedAlgoConfig",
     "TUNABLE_SPECS",

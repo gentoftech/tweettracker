@@ -22,7 +22,12 @@ import { WebhookDeliveryPanel } from "@/components/radar/webhook-delivery-panel"
 import { AlgoSyncPanel } from "@/components/rising/algo-sync-panel";
 import { api } from "@/lib/api";
 import { backtestApi } from "@/lib/backtest-api";
-import type { ChangelogResponse, ScorecardResponse } from "@/lib/backtest-types";
+import type {
+  ChangelogResponse,
+  PerformanceResponse,
+  ScorecardResponse,
+} from "@/lib/backtest-types";
+import { PerformancePanel } from "@/components/settings/performance-panel";
 import type { LLMProviderName, SecretStatus, XDataProviderName } from "@/lib/types";
 
 export default function SettingsPage() {
@@ -62,6 +67,7 @@ export default function SettingsPage() {
 
   // Zero-touch Model Accuracy & Auto-Tuning state
   const [scorecard, setScorecard] = useState<ScorecardResponse | null>(null);
+  const [perfData, setPerfData] = useState<PerformanceResponse | null>(null);
   const [changelog, setChangelog] = useState<ChangelogResponse | null>(null);
   const [revertingWeights, setRevertingWeights] = useState(false);
 
@@ -178,6 +184,11 @@ export default function SettingsPage() {
       ]);
       setScorecard(sc);
       setChangelog(cl);
+    } catch {
+      // Non-fatal in settings
+    }
+    try {
+      setPerfData(await backtestApi.getPerformance(activeWorkspace.id));
     } catch {
       // Non-fatal in settings
     }
@@ -521,10 +532,10 @@ export default function SettingsPage() {
             <Sparkles className="h-4 w-4 text-emerald-400" />
             <div>
               <div className="text-sm font-semibold text-white">
-                Model Accuracy &amp; Automatic Tuning
+                Growth &amp; Hot Posts Accuracy
               </div>
               <div className="text-[11px] text-slate-400">
-                TweetTracker grades 48-hour post outcomes in the background and refines scoring weights automatically.
+                Is the account growing, and is Hot Posts picking the right posts? Hover a label for how it&apos;s measured.
               </div>
             </div>
           </div>
@@ -549,39 +560,7 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {scorecard && (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="rounded-xl bg-surface-950/80 border border-slate-800 p-3.5">
-              <div className="text-[11px] text-slate-400">Alert Hit Rate</div>
-              <div className="text-xl font-bold text-white mt-0.5">
-                {Math.round(scorecard.overall.precision * 100)}%
-              </div>
-              <div className="text-[11px] text-slate-500 mt-0.5">
-                Flagged posts that became true 48h breakouts
-              </div>
-            </div>
-
-            <div className="rounded-xl bg-surface-950/80 border border-slate-800 p-3.5">
-              <div className="text-[11px] text-slate-400">Breakouts Caught</div>
-              <div className="text-xl font-bold text-sky-300 mt-0.5">
-                {Math.round(scorecard.overall.recall * 100)}%
-              </div>
-              <div className="text-[11px] text-slate-500 mt-0.5">
-                Across {scorecard.overall.matured_posts_count} graded 48h posts
-              </div>
-            </div>
-
-            <div className="rounded-xl bg-surface-950/80 border border-slate-800 p-3.5">
-              <div className="text-[11px] text-slate-400">Early Head Start</div>
-              <div className="text-xl font-bold text-emerald-300 mt-0.5">
-                {Math.round(scorecard.overall.median_lead_time_growth_share * 100)}%
-              </div>
-              <div className="text-[11px] text-slate-500 mt-0.5">
-                Views still ahead after post enters Hot Posts
-              </div>
-            </div>
-          </div>
-        )}
+        {perfData && <PerformancePanel perf={perfData} />}
       </section>
 
       {/* 1b. Encrypted In-App API Keys */}

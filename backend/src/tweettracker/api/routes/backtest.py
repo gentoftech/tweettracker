@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tweettracker.api.deps import get_db_session, require_admin_auth
 from tweettracker.backtest import (
+    compute_workspace_performance,
     compute_workspace_scorecard,
     grade_workspace_outcomes,
     list_workspace_changelog,
@@ -192,6 +193,18 @@ async def get_scorecard(
             breakout_multiple=breakout_multiple,
             community_floor_views=community_floor_views,
         )
+
+
+@router.get("/{workspace_id}/performance")
+async def get_performance(
+    workspace_id: int,
+    session: AsyncSession = Depends(get_db_session),
+) -> dict[str, Any]:
+    """Growth and Hot Posts accuracy (read-only; no workspace lock so it never waits on a sync)."""
+    try:
+        return await compute_workspace_performance(session, workspace_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 @router.post("/{workspace_id}/scorecard/grade")

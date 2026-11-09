@@ -613,3 +613,29 @@ async def test_get_account_usage_parses_live_camel_case_shape_and_reconciles_thr
     proj_zero = await estimate_workspace_monthly_units(db_session, ws)
     assert proj_zero["reconciled_balance_units"] == 0.0
     assert proj_zero["discovery_throttle_mode"] == "paused"
+
+
+async def test_llm_tokens_do_not_count_against_x_data_unit_budget(db_session: AsyncSession) -> None:
+    """Gemini/Grok log tokens as "units"; only X-data provider calls count toward the call plan,
+    while dollars from every provider still count toward the USD caps."""
+    from tweettracker.providers import get_workspace_spend_totals, log_api_credit
+
+    ws = Workspace(name="Units WS", slug="units-ws", x_data_provider="tweetapi_com")
+    db_session.add(ws)
+    await db_session.commit()
+
+    await log_api_credit(
+        db_session, workspace_id=ws.id, provider="tweetapi_com",
+        endpoint="/tw-v2/search", units_consumed=1.0, estimated_usd=0.00025,
+    )
+    await log_api_credit(
+        db_session, workspace_id=ws.id, provider="google_gemini",
+        endpoint="gemini:gemini-3.8-flash", units_consumed=3_400.0, estimated_usd=0.001,
+    )
+    await db_session.commit()
+
+    daily_usd, monthly_usd, daily_units, monthly_units = await get_workspace_spend_totals(db_session, ws.id)
+    assert daily_units == 1.0
+    assert monthly_units == 1.0
+    assert daily_usd == pytest.approx(0.00125)
+    assert monthly_usd == pytest.approx(0.00125)

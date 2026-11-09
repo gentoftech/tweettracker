@@ -6,6 +6,7 @@ import type {
   CalibrateResult,
   ChangelogResponse,
   SandboxCandidateParams,
+  PerformanceResponse,
   ScorecardResponse,
 } from "./backtest-types";
 
@@ -61,6 +62,9 @@ async function backtestRequest<T>(
 export const backtestApi = {
   getScorecard: (workspaceId: number) =>
     backtestRequest<ScorecardResponse>(`/api/workspaces/${workspaceId}/scorecard`),
+
+  getPerformance: (workspaceId: number) =>
+    backtestRequest<PerformanceResponse>(`/api/workspaces/${workspaceId}/performance`),
 
   gradeScorecard: (
     workspaceId: number,
